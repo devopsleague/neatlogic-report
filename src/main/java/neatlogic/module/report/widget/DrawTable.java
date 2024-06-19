@@ -15,6 +15,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 
 package neatlogic.module.report.widget;
 
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import freemarker.template.TemplateMethodModelEx;
 import freemarker.template.TemplateModelException;
@@ -47,20 +48,19 @@ public class DrawTable implements TemplateMethodModelEx {
         return filter;
     }
 
-    @SuppressWarnings("unchecked")
     @Override
-    public Object exec(@SuppressWarnings("rawtypes") List arguments) throws TemplateModelException {
+    public Object exec(List arguments) throws TemplateModelException {
         String title = null, header = null, column = null, data = null;
         Boolean needPage = null;
 //        SimpleSequence ss = null;
         List<String> keyList = new ArrayList<>();
-        List<String> headerList = new ArrayList<>();
-        List<String> columnList = new ArrayList<>();
+        List<String> headerList;
+        List<String> columnList;
 
         if (arguments.size() >= 1) {
             String config = arguments.get(0).toString();
             try {
-                JSONObject configObj = JSONObject.parseObject(config);
+                JSONObject configObj = JSON.parseObject(config);
                 data = configObj.getString("data");
                 title = configObj.getString("title");
                 header = configObj.getString("header");
@@ -80,7 +80,7 @@ public class DrawTable implements TemplateMethodModelEx {
                 }
             }
         }
-        needPage = needPage == null ? false : needPage;
+        needPage = (needPage != null && needPage);
         Integer currentPage = 1;
         Integer pageSize = 20;
         Integer pageCount = 0;
@@ -111,19 +111,19 @@ public class DrawTable implements TemplateMethodModelEx {
                 .append("<div class=\"tstable-main bg-op\">")
                 .append("<table tableName=\"").append(tableName).append("\" class=\"table-main tstable-body\">");
 
-        if (header == null || header.trim().equals("")) {
+        if (header == null || header.trim().isEmpty()) {
             headerList = keyList;
         } else {
             headerList = Arrays.asList(header.split(","));
         }
 
-        if (column == null || column.equals("")) {
+        if (column == null || column.isEmpty()) {
             columnList = keyList;
         } else {
             columnList = Arrays.asList(column.split(","));
         }
 
-        if (headerList.size() > 0) {
+        if (!headerList.isEmpty()) {
             sb.append("<thead><tr class=\"th-left\">");
             for (String head : headerList) {
                 sb.append("<th>").append(head).append("</th>");
@@ -131,7 +131,7 @@ public class DrawTable implements TemplateMethodModelEx {
             sb.append("</tr></thead>");
         }
 
-        if (columnList.size() > 0 && tbodyList != null) {
+        if (!columnList.isEmpty() && tbodyList != null) {
             sb.append("<tbody class=\"tbody-main\">");
             for (Map<String, Object> tbody : tbodyList) {
                 sb.append("<tr>");
