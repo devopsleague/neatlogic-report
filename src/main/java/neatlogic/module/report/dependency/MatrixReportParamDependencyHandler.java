@@ -15,14 +15,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 
 package neatlogic.module.report.dependency;
 
+import com.alibaba.fastjson.JSONObject;
 import neatlogic.framework.asynchronization.threadlocal.TenantContext;
 import neatlogic.framework.dependency.constvalue.FrameworkFromType;
-import neatlogic.framework.dependency.core.CustomTableDependencyHandlerBase;
+import neatlogic.framework.dependency.core.CustomDependencyHandlerBase;
 import neatlogic.framework.dependency.core.IFromType;
 import neatlogic.framework.dependency.dto.DependencyInfoVo;
 import neatlogic.module.report.dao.mapper.ReportMapper;
 import neatlogic.module.report.dto.ReportParamVo;
-import com.alibaba.fastjson.JSONObject;
 import org.springframework.stereotype.Service;
 
 import javax.annotation.Resource;
@@ -36,7 +36,7 @@ import java.util.List;
  * @since: 2021/11/3 11:42
  **/
 @Service
-public class MatrixReportParamDependencyHandler extends CustomTableDependencyHandlerBase {
+public class MatrixReportParamDependencyHandler extends CustomDependencyHandlerBase {
 
     @Resource
     private ReportMapper reportMapper;
