@@ -15,6 +15,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 
 package neatlogic.module.report.api.statement;
 
+import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONObject;
 import neatlogic.framework.auth.core.AuthAction;
 import neatlogic.framework.common.constvalue.ApiParamType;
 import neatlogic.framework.common.dto.BasePageVo;
@@ -23,9 +25,8 @@ import neatlogic.framework.restful.annotation.*;
 import neatlogic.framework.restful.constvalue.OperationTypeEnum;
 import neatlogic.framework.restful.core.privateapi.PrivateApiComponentBase;
 import neatlogic.framework.util.TableResultUtil;
-import neatlogic.module.report.auth.label.REPORT_STATEMENT_MODIFY;
+import neatlogic.module.report.auth.label.REPORT_BASE;
 import neatlogic.module.report.dao.mapper.ReportStatementMapper;
-import com.alibaba.fastjson.JSONObject;
 import org.apache.commons.collections4.CollectionUtils;
 import org.springframework.stereotype.Service;
 
@@ -33,7 +34,7 @@ import javax.annotation.Resource;
 import java.util.List;
 
 @Service
-@AuthAction(action = REPORT_STATEMENT_MODIFY.class)
+@AuthAction(action = REPORT_BASE.class)
 @OperationType(type = OperationTypeEnum.SEARCH)
 public class SearchReportStatementApi extends PrivateApiComponentBase {
     @Resource
@@ -46,7 +47,7 @@ public class SearchReportStatementApi extends PrivateApiComponentBase {
 
     @Override
     public String getName() {
-        return "搜索报表";
+        return "搜索大屏";
     }
 
     @Override
@@ -54,12 +55,13 @@ public class SearchReportStatementApi extends PrivateApiComponentBase {
         return null;
     }
 
-    @Input({@Param(name = "keyword", type = ApiParamType.STRING, desc = "关键字")})
+    @Input({@Param(name = "keyword", type = ApiParamType.STRING, desc = "关键字"),
+            @Param(name = "isActive", type = ApiParamType.INTEGER, desc = "是否激活")})
     @Output({@Param(name = "tbodyList", explode = ReportStatementVo[].class), @Param(explode = BasePageVo.class)})
-    @Description(desc = "搜索报表接口")
+    @Description(desc = "搜索大屏")
     @Override
     public Object myDoService(JSONObject jsonObj) throws Exception {
-        ReportStatementVo reportStatementVo = JSONObject.toJavaObject(jsonObj, ReportStatementVo.class);
+        ReportStatementVo reportStatementVo = JSON.toJavaObject(jsonObj, ReportStatementVo.class);
         List<ReportStatementVo> reportStatementList = reportStatementMapper.searchReportStatement(reportStatementVo);
         if (CollectionUtils.isNotEmpty(reportStatementList)) {
             reportStatementVo.setRowNum(reportStatementMapper.searchReportStatementCount(reportStatementVo));

@@ -9,7 +9,7 @@ public class REPORT_MODIFY extends AuthBase {
 
 	@Override
 	public String getAuthDisplayName() {
-		return "报表管理员权限";
+		return "报表管理权限";
 	}
 
 	@Override

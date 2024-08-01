@@ -54,12 +54,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.-->
         lcu
         from report_statement
         <include refid="searchReportStatementSql"></include>
+        order by id desc
+        limit #{startNum}, #{pageSize}
     </select>
 
     <sql id="searchReportStatementSql">
         <where>
             <if test="keyword != null and keyword != ''">
                 and (name like concat('%', #{keyword}, '%') or description like concat('%', #{keyword}, '%'))
+            </if>
+            <if test="isActive != null">
+                and is_active = #{isActive}
             </if>
         </where>
     </sql>
