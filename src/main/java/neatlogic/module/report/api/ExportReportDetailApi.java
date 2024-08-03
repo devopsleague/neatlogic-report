@@ -102,14 +102,13 @@ public class ExportReportDetailApi extends PrivateBinaryStreamApiComponentBase {
                 throw new ReportNotFoundException(reportId);
             }
             Map<String, Object> returnMap = reportService.getQuerySqlResult(reportVo, paramObj, showColumnsMap);
-            Map<String, Map<String, Object>> pageMap = (Map<String, Map<String, Object>>) returnMap.remove("page");
             Map<String, Object> tmpMap = new HashMap<>();
             Map<String, Object> commonMap = new HashMap<>();
             tmpMap.put("report", returnMap);
             tmpMap.put("param", paramObj);
             tmpMap.put("common", commonMap);
 
-            String content = ReportFreemarkerUtil.getFreemarkerExportContent(tmpMap, returnMap, pageMap, filter, reportVo.getContent(), ActionType.EXPORT.getValue());
+            String content = ReportFreemarkerUtil.getFreemarkerExportContent(tmpMap, returnMap, filter, reportVo.getContent(), ActionType.EXPORT.getValue());
             if (DocType.PDF.getValue().equals(type)) {
                 os = response.getOutputStream();
                 response.setContentType("application/pdf");

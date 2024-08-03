@@ -16,6 +16,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 package neatlogic.module.report.util;
 
 import neatlogic.framework.util.javascript.JavascriptUtil;
+import neatlogic.module.report.config.ReportConfig;
 import neatlogic.module.report.constvalue.ActionType;
 import neatlogic.module.report.widget.*;
 import com.alibaba.fastjson.JSONObject;
@@ -23,6 +24,7 @@ import freemarker.cache.StringTemplateLoader;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -51,8 +53,16 @@ public class ReportFreemarkerUtil {
     }
 
 
-    public static void getFreemarkerContent(Map<String, Object> paramMap, Map<String, Object> reportMap, Map<String, Map<String, Object>> pageMap, JSONObject filter, String content, Writer out) throws Exception {
+    public static void getFreemarkerContent(Map<String, Object> paramMap, Map<String, Object> reportMap, JSONObject filter, String content, Writer out) throws Exception {
         if (StringUtils.isNotBlank(content)) {
+            long start = System.currentTimeMillis();
+            Object timeMapObj = reportMap.remove(ReportConfig.REPORT_TIME_MAP_KEY);
+            Object pageMapObj = reportMap.remove(ReportConfig.REPORT_PAGE_MAP_KEY);
+            Map<String, Map<String, Object>> pageMap = null;
+            if (pageMapObj instanceof Map) {
+                pageMap = (Map<String, Map<String, Object>>) pageMapObj;
+            }
+
             Configuration cfg = new Configuration(Configuration.DEFAULT_INCOMPATIBLE_IMPROVEMENTS);
             cfg.setNumberFormat("0.##");
             cfg.setClassicCompatible(true);
@@ -79,13 +89,37 @@ public class ReportFreemarkerUtil {
                 logger.error(e.getMessage(), e);
                 throw e;
             }
+
+            // 统计报表执行耗时
+            StringBuilder sqlTime = new StringBuilder();
+            if (timeMapObj instanceof Map) {
+                Map<String, Long> timeMap = (Map<String, Long>) timeMapObj;
+                if (MapUtils.isNotEmpty(timeMap)) {
+                    for (Map.Entry<String, Long> entry : timeMap.entrySet()) {
+                        if (entry.getKey().startsWith("SQL_") && !entry.getKey().endsWith("_SIZE")) {
+                            String sqlId = entry.getKey().replace("SQL_", "");
+                            sqlTime.append(sqlId);
+                            if (timeMap.containsKey(entry.getKey() + "_SIZE")) {
+                                sqlTime.append("(").append(timeMap.get(entry.getKey() + "_SIZE")).append("条)");
+                            }
+                            sqlTime.append("(").append(entry.getValue()).append("ms); ");
+                        }
+                    }
+                }
+            }
+            out.write("<div id=\"footTip\" style=\"margin-top: 5px; padding-top: 10px; padding-bottom: 5px; border-top: 1px solid #ddd; color: #999; text-align: right;\">");
+            if (sqlTime.length() > 0) {
+                out.write("数据库执行耗时：" + sqlTime);
+            }
+            out.write("模板渲染耗时：" + (System.currentTimeMillis() - start) + "ms; ");
+            out.write("</div>");
         }
     }
 
     /*
      * "string":获取htm "print":下载
      */
-    public static String getFreemarkerExportContent(Map<String, Object> paramMap, Map<String, Object> reportMap, Map<String, Map<String, Object>> pageMap, JSONObject filter, String content, String actionType) throws IOException {
+    public static String getFreemarkerExportContent(Map<String, Object> paramMap, Map<String, Object> reportMap, JSONObject filter, String content, String actionType) throws IOException {
         StringWriter out = new StringWriter();
         out.write("<html xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\" xmlns:x=\"urn:schemas-microsoft-com:office:excel\" xmlns=\"http://www.w3.org/TR/REC-html40\">\n");
         out.write("<head>\n");
@@ -103,6 +137,12 @@ public class ReportFreemarkerUtil {
         out.write("<body>\n");
         try {
             if (StringUtils.isNotBlank(content)) {
+                Object pageMapObj = reportMap.remove(ReportConfig.REPORT_PAGE_MAP_KEY);
+                Map<String, Map<String, Object>> pageMap = null;
+                if (pageMapObj instanceof Map) {
+                    pageMap = (Map<String, Map<String, Object>>) pageMapObj;
+                }
+
                 Configuration cfg = new Configuration(Configuration.DEFAULT_INCOMPATIBLE_IMPROVEMENTS);
                 cfg.setNumberFormat("0.##");
                 cfg.setClassicCompatible(true);

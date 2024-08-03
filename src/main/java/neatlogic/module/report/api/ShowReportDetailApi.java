@@ -105,18 +105,17 @@ public class ShowReportDetailApi extends PrivateBinaryStreamApiComponentBase {
             //out.write("<meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\">");
             //out.write("</head>");
             //out.write("<body>");
-            Map<String, Long> timeMap = new HashMap<>();
+            //Map<String, Long> timeMap = new HashMap<>();
 //            boolean isFirst = request.getHeader("referer") == null || !request.getHeader("referer").contains("report-show/" + reportId);
 //            Map<String, Object> returnMap = reportService.getQueryResult(reportId, paramObj, timeMap, isFirst, showColumnsMap);
             Map<String, Object> returnMap = reportService.getQuerySqlResult(reportVo, paramObj, showColumnsMap, tableList);
-            Map<String, Map<String, Object>> pageMap = (Map<String, Map<String, Object>>) returnMap.remove("page");
             Map<String, Object> tmpMap = new HashMap<>();
             Map<String, Object> commonMap = new HashMap<>();
             tmpMap.put("report", returnMap);
             tmpMap.put("param", paramObj);
             tmpMap.put("common", commonMap);
 
-            ReportFreemarkerUtil.getFreemarkerContent(tmpMap, returnMap, pageMap, filter, reportVo.getContent(), out);
+            ReportFreemarkerUtil.getFreemarkerContent(tmpMap, returnMap, filter, reportVo.getContent(), out);
         } catch (Exception ex) {
             out.write("<div class=\"ivu-alert ivu-alert-error ivu-alert-with-icon ivu-alert-with-desc\">" + "<span class=\"ivu-alert-icon\"><i class=\"ivu-icon ivu-icon-ios-close-circle-outline\"></i></span>" + "<span class=\"ivu-alert-message\">异常：</span> <span class=\"ivu-alert-desc\"><span>" + ex.getMessage() + "</span></span></div>");
         }

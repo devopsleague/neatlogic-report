@@ -13,6 +13,7 @@ import neatlogic.framework.sqlrunner.SqlRunner;
 import neatlogic.framework.util.RestUtil;
 import neatlogic.framework.util.excel.ExcelBuilder;
 import neatlogic.framework.util.excel.SheetBuilder;
+import neatlogic.module.report.config.ReportConfig;
 import neatlogic.module.report.dao.mapper.ReportInstanceMapper;
 import neatlogic.module.report.dao.mapper.ReportMapper;
 import neatlogic.module.report.dto.*;
@@ -198,7 +199,7 @@ public class ReportServiceImpl implements ReportService {
                         pageObj.put("needPage", true);
                         pageMap.put(select.getId(), pageObj);
                     }
-                    returnResultMap.put("page", pageMap);
+                    returnResultMap.put(ReportConfig.REPORT_PAGE_MAP_KEY, pageMap);
                     /* 如果存在表格且存在表格显示列的配置，则筛选显示列并排序
                       showColumnMap:key->表格ID;value->配置的表格显示列
                      */
@@ -463,18 +464,21 @@ public class ReportServiceImpl implements ReportService {
             }
         }
         Map<String, Object> pageMap = new HashMap<>();
+        Map<String, Long> timeMap = new HashMap<>();
         BasePageVo basePageVo = new BasePageVo();
         for (SqlInfo sqlInfo : sqlInfoList) {
             // 如果SQL设置了延迟加载，第一次访问时不主动获取数据
 //            if (isFirst) {
 //                continue;
 //            }
+            long sqlTimeStart = System.currentTimeMillis();
             if (sqlInfo.getNeedPage()) {
                 basePageVo.setPageSize(sqlInfo.getPageSize());
                 PageRowBounds rowBounds = new PageRowBounds(basePageVo.getStartNum(), basePageVo.getPageSize());
                 List list = sqlRunner.runSqlById(sqlInfo, paramMap, rowBounds);
                 if (CollectionUtils.isNotEmpty(list)) {
                     resultMap.put(sqlInfo.getId(), list);
+                    timeMap.put("SQL_" + sqlInfo.getId() + "_SIZE", (long) list.size());
                 }
                 basePageVo.setRowNum(rowBounds.getRowNum());
                 JSONObject pageObj = new JSONObject();
@@ -488,10 +492,12 @@ public class ReportServiceImpl implements ReportService {
                 List list = sqlRunner.runSqlById(sqlInfo, paramMap);
                 if (CollectionUtils.isNotEmpty(list)) {
                     resultMap.put(sqlInfo.getId(), list);
+                    timeMap.put("SQL_" + sqlInfo.getId() + "_SIZE", (long) list.size());
                 }
             }
+            timeMap.put("SQL_" + sqlInfo.getId(), System.currentTimeMillis() - sqlTimeStart);
         }
-        resultMap.put("page", pageMap);
+        resultMap.put(ReportConfig.REPORT_PAGE_MAP_KEY, pageMap);
         for (SqlInfo sqlInfo : sqlInfoList) {
             Object object = resultMap.get(sqlInfo.getId());
             if (object == null) {
@@ -520,8 +526,10 @@ public class ReportServiceImpl implements ReportService {
                     }
                 }
                 resultMap.put(sqlInfo.getId(), resultList);
+                timeMap.put("SQL_" + sqlInfo.getId() + "_SIZE", (long) resultList.size());
             }
         }
+        resultMap.put(ReportConfig.REPORT_TIME_MAP_KEY, timeMap);
         return resultMap;
     }
 
@@ -531,8 +539,10 @@ public class ReportServiceImpl implements ReportService {
         SqlRunner sqlRunner = new SqlRunner(reportVo.getSql(), "reportId_" + reportVo.getId());
         List<SqlInfo> sqlInfoList = sqlRunner.getAllSqlInfoList(paramMap);
         Map<String, Object> pageMap = new HashMap<>();
+        Map<String, Long> timeMap = new HashMap<>();
         for (SqlInfo sqlInfo : sqlInfoList) {
             if (Objects.equals(sqlInfo.getId(), id)) {
+                long sqlTimeStart = System.currentTimeMillis();
                 BasePageVo basePageVo = new BasePageVo();
                 Integer currentPage = paramMap.getInteger("currentPage");
                 if (currentPage != null) {
@@ -546,6 +556,7 @@ public class ReportServiceImpl implements ReportService {
                 List list = sqlRunner.runSqlById(sqlInfo, paramMap, rowBounds);
                 if (CollectionUtils.isNotEmpty(list)) {
                     resultMap.put(sqlInfo.getId(), list);
+                    timeMap.put("SQL_" + sqlInfo.getId() + "_SIZE", (long) list.size());
                 }
                 basePageVo.setRowNum(rowBounds.getRowNum());
                 JSONObject pageObj = new JSONObject();
@@ -555,9 +566,10 @@ public class ReportServiceImpl implements ReportService {
                 pageObj.put("pageCount", basePageVo.getPageCount());
                 pageObj.put("tableId", sqlInfo.getId());
                 pageMap.put(sqlInfo.getId(), pageObj);
+                timeMap.put("SQL_" + sqlInfo.getId(), System.currentTimeMillis() - sqlTimeStart);
             }
         }
-        resultMap.put("page", pageMap);
+        resultMap.put(ReportConfig.REPORT_PAGE_MAP_KEY, pageMap);
         Object object = resultMap.get(id);
         if (object == null) {
             return resultMap;
@@ -585,7 +597,9 @@ public class ReportServiceImpl implements ReportService {
                 }
             }
             resultMap.put(id, resultList);
+            timeMap.put("SQL_" + id + "_SIZE", (long) resultList.size());
         }
+        resultMap.put(ReportConfig.REPORT_TIME_MAP_KEY, timeMap);
         return resultMap;
     }
 

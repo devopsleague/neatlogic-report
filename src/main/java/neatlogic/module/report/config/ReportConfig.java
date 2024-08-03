@@ -9,7 +9,8 @@ public class ReportConfig {
 	public static int REPORT_MAXROW;
 	public static int REPORT_TIMEOUT;
 	public static String ARCHIVE_PATH;
-
+	public static final String REPORT_PAGE_MAP_KEY = "REPORT_PAGE_MAP_KEY_" + Math.random();
+	public static final String REPORT_TIME_MAP_KEY = "REPORT_TIME_MAP_KEY_" + Math.random();
 	public static final int JFREECHART_FONTSIZE;
 
 	public static Paint[] CHART_COLOR = {
