@@ -762,46 +762,54 @@ public class ReportServiceImpl implements ReportService {
                 throw new TableNotFoundInReportException();
             }
 
-            List<Map<Integer, Map<Integer, String>>> sheetList = new ArrayList<>();
-            List<JSONArray> mergeList = new ArrayList<>();
+            // 表头样式
+            CellStyle headStyle = getDefualtHeadCellStyle(workbook);
+            // 普通样式
+            CellStyle style = getDefualtCellStyle(workbook);
+            // 标志表头
+            Map<Integer, Set<Integer>> thMap = null;
+            // 表内所有单元格数据
             Map<Integer, Map<Integer, String>> rowList = null;
+            // 单行单元格数据
             Map<Integer, String> columnList = null;
+            // 合并单元格数组
             JSONArray mergeJsonArray = null;
+            // 合并单元格对象
             JSONObject mergeJsonObj = null;
-            boolean hasTableHead = false;
+            // 行数据列表
+            Elements trList = null;
+            // 列数据列表
+            Elements tdList = null;
+
             for (Element t : tableElements) {
-                // i是sheet号
-                Elements trList = t.select("tr");
-
-                mergeJsonArray = new JSONArray();
+                thMap = new HashMap<>();
                 rowList = new HashMap<>();
+                mergeJsonArray = new JSONArray();
 
+                // 遍历表格内所有行
+                trList = t.select("tr");
                 for (int j = 0; j < trList.size(); j++) {
-                    // 遍历表格内所有行
                     Element r = trList.get(j);
+                    // 获取当前起始单元格行下标row, col
+                    int rowIndex = getBottomRowIndex(rowList, j);
+                    columnList = rowList.computeIfAbsent(rowIndex, k -> new HashMap<>());
 
-                    columnList = rowList.computeIfAbsent(j, k -> new HashMap<>());
-
-                    List<Element> tdList = new ArrayList<>();
-                    tdList.addAll(r.select("th,td"));
-
+                    // 遍历此行内所有列
+                    tdList = r.select("th,td");
                     for (int k = 0; k < tdList.size(); k++) {
-                        // 遍历此行内所有列
-                        Element d = tdList.get(k);
-                        if (j == 0 && k == 0 && "th".equals(d.tag().normalName())) {
-                            // 存在表头标题行
-                            hasTableHead = true;
-                        }
+                        Element element = tdList.get(k);
+                        boolean isTh = "th".equals(element.tagName());
+                        // 获取当前起始单元格列下标
+                        int colIndex = getRightColumnIndex(columnList, 0);
 
-                        Element element = d.clone();
-                        int columnNum = getRightColumnIndex(columnList, k);
+                        // 当前单元格内容
+                        String trimStr = null;
                         // Excel 最大的 cell size 为 32767
                         if (element.text().length() >= 32000) {
-                            columnList.put(columnNum, element.text().toString().substring(0, 32000));
+                            trimStr = element.text().toString().substring(0, 32000);
                         } else {
-                            String trimStr = null;
                             Elements childrenEle = element.children();
-                            // 存在换行符
+                            // <br>标签替换为\n换行符
                             for (Element o : childrenEle) {
                                 if ("br".equals(o.tag().normalName())) {
                                     if (trimStr == null) {
@@ -810,105 +818,80 @@ public class ReportServiceImpl implements ReportService {
                                     trimStr = trimStr.replaceAll("\\s*" + o + "+\\s*", "\n");
                                 }
                             }
-                            if (trimStr == null) {
-                                trimStr = element.text().trim();
-                            }
-                            columnList.put(columnNum, trimStr);
+                        }
+                        if (trimStr == null) {
+                            trimStr = element.text().trim();
                         }
 
-                        // 为了合并单元格 填充空值 以防重合
+                        // 合并单元格 填充空值
                         int colspan = 1;
                         int rowspan = 1;
-                        if (StringUtils.isNotBlank(d.attr("colspan"))) {
-                            colspan = Integer.parseInt(d.attr("colspan").trim());
+                        if (StringUtils.isNotBlank(element.attr("colspan"))) {
+                            colspan = Integer.parseInt(element.attr("colspan").trim());
                         }
-                        if (StringUtils.isNotBlank(d.attr("rowspan"))) {
-                            rowspan = Integer.parseInt(d.attr("rowspan").trim());
+                        if (StringUtils.isNotBlank(element.attr("rowspan"))) {
+                            rowspan = Integer.parseInt(element.attr("rowspan").trim());
                         }
 
-                        // 填充单元格
-                        // 先填充本行
                         if (colspan > 1 || rowspan > 1) {
+                            for (int p = rowIndex; p < rowIndex + rowspan; p++) {
+                                Map<Integer, String> nowColumnList = rowList.computeIfAbsent(p, k1 -> new HashMap<>());
+                                for (int m = colIndex; m < colIndex + colspan; m++) {
+                                    if (p == rowIndex && m == colIndex) {
+                                        // 填充当前单元格内容
+                                        nowColumnList.put(m, trimStr);
+                                    } else {
+                                        // 填充空字符串占位
+                                        nowColumnList.put(m, "");
+                                    }
+                                    if (isTh) {
+                                        thMap.computeIfAbsent(p, k2 -> new HashSet<>()).add(m);
+                                    }
+                                }
+                            }
                             mergeJsonObj = new JSONObject();
-                            mergeJsonObj.put("firstRow", j);
-                            mergeJsonObj.put("lastRow", j + rowspan - 1);
-                            mergeJsonObj.put("firstCol", k);
-                            mergeJsonObj.put("lastCol", k + colspan - 1);
-                            //合并列
-                            if (colspan > 1) {
-                                for (int m = k + 1; m < colspan + k; m++) {
-                                    mergeJsonObj = new JSONObject();
-                                    mergeJsonObj.put("firstRow", j);
-                                    mergeJsonObj.put("lastRow", j + rowspan - 1);
-                                    mergeJsonObj.put("firstCol", columnList.size() - 1);
-                                    mergeJsonObj.put("lastCol", columnList.size() + colspan - 2);
-                                    if (CollectionUtils.isEmpty(mergeJsonArray) || mergeJsonArray.getJSONObject(mergeJsonArray.size() - 1).getInteger("lastCol") < columnList.size() - 1) {
-                                        mergeJsonArray.add(mergeJsonObj);
-                                    }
-                                    columnList.put(columnList.size(), "");
-                                }
-                            } else {
-                                mergeJsonArray.add(mergeJsonObj);
+                            mergeJsonObj.put("firstRow", rowIndex);
+                            mergeJsonObj.put("lastRow", rowIndex + rowspan - 1);
+                            mergeJsonObj.put("firstCol", colIndex);
+                            mergeJsonObj.put("lastCol", colIndex + colspan - 1);
+                            mergeJsonArray.add(mergeJsonObj);
+                        } else {
+                            columnList.put(colIndex, trimStr);
+                            if (isTh) {
+                                thMap.computeIfAbsent(rowIndex, k2 -> new HashSet<>()).add(colIndex);
                             }
-
-                            // 合并行
-                            // 再填充后面行
-                            if (rowspan > 1) {
-                                Map<Integer, String> nextColumnList = null;
-                                for (int p = j + 1; p < rowspan + j; p++) {
-                                    // 下一个行号为 p
-                                    nextColumnList = rowList.computeIfAbsent(p, k1 -> new HashMap<>());
-                                    for (int m = k; m < colspan + k; m++) {
-                                        nextColumnList.put(m, "");
-                                    }
-                                }
-                            }
-
                         }
                     }
                 }
-                mergeList.add(mergeJsonArray);
-                sheetList.add(rowList);
-            }
 
-            // 生成sheet及填充数据
-            CellStyle headStyle = getDefualtHeadCellStyle(workbook);
-            CellStyle style = getDefualtCellStyle(workbook);
-            if (CollectionUtils.isNotEmpty(sheetList)) {
-                SXSSFSheet sheet = null;
-                SXSSFRow row = null;
-                SXSSFCell cell = null;
-                for (int index = 0; index < sheetList.size(); index++) {
-                    Map<Integer, Map<Integer, String>> table = sheetList.get(index);
-
-                    sheet = workbook.createSheet();
-                    for (int i = 0; i < table.size(); i++) {
-                        Map<Integer, String> tr = table.get(i);
-                        row = sheet.createRow(i);
-                        for (int j = 0; j < tr.size(); j++) {
-                            String cellValue = tr.get(j);
-
-                            cell = row.createCell((short) j);
-                            if (i == 0 && hasTableHead) {
-                                cell.setCellStyle(headStyle);
-                            } else {
-                                cell.setCellStyle(style);
-                            }
-                            cell.setCellValue(cellValue);
+                // 生成sheet及填充数据
+                SXSSFSheet sheet = workbook.createSheet();
+                for (int i = 0; i < rowList.size(); i++) {
+                    Map<Integer, String> tr = rowList.get(i);
+                    SXSSFRow row = sheet.createRow(i);
+                    for (int j = 0; j < tr.size(); j++) {
+                        if (i == 0) {
+                            sheet.setColumnWidth(j, 30 * 256);
                         }
-                    }
-                    // 合并单元格
-                    mergeJsonArray = mergeList.get(index);
-                    for (int p = 0; p < mergeJsonArray.size(); p++) {
-                        mergeJsonObj = mergeJsonArray.getJSONObject(p);
-                        int firstRow = mergeJsonObj.getInteger("firstRow");
-                        int lastRow = mergeJsonObj.getInteger("lastRow");
-                        int firstCol = mergeJsonObj.getInteger("firstCol");
-                        int lastCol = mergeJsonObj.getInteger("lastCol");
-
-                        sheet.addMergedRegion(new CellRangeAddress(firstRow, lastRow, firstCol, lastCol));
+                        String cellValue = tr.get(j);
+                        SXSSFCell cell = row.createCell((short) j);
+                        if (thMap.containsKey(i) && thMap.get(i).contains(j)) {
+                            cell.setCellStyle(headStyle);
+                        } else {
+                            cell.setCellStyle(style);
+                        }
+                        cell.setCellValue(cellValue);
                     }
                 }
+                for (int p = 0; p < mergeJsonArray.size(); p++) {
+                    mergeJsonObj = mergeJsonArray.getJSONObject(p);
+                    int firstRow = mergeJsonObj.getInteger("firstRow");
+                    int lastRow = mergeJsonObj.getInteger("lastRow");
+                    int firstCol = mergeJsonObj.getInteger("firstCol");
+                    int lastCol = mergeJsonObj.getInteger("lastCol");
+                    sheet.addMergedRegion(new CellRangeAddress(firstRow, lastRow, firstCol, lastCol));
+                }
+
             }
         }
         return workbook;
@@ -921,6 +904,7 @@ public class ReportServiceImpl implements ReportService {
         style.setLeftBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT.getIndex());
         style.setRightBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT.getIndex());
 
+        style.setAlignment(HorizontalAlignment.CENTER);
         style.setBorderBottom(BorderStyle.THIN);
         style.setBorderLeft(BorderStyle.THIN);
         style.setBorderRight(BorderStyle.THIN);
@@ -958,5 +942,23 @@ public class ReportServiceImpl implements ReportService {
             columnNum = getRightColumnIndex(columnList, ++k);
         }
         return columnNum;
+    }
+
+    private int getBottomRowIndex(Map<Integer, Map<Integer, String>> rowList, int j) {
+        if (j == 0) {
+            return 0;
+        }
+        int length = rowList.get(j - 1).size();
+        int row = j;
+        int col = 0;
+        while (rowList.containsKey(row) && rowList.get(row).get(col) != null) {
+            if (col == length - 1) {
+                row++;
+                col = 0;
+            } else {
+                col++;
+            }
+        }
+        return row;
     }
 }
