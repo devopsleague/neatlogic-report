@@ -1,6 +1,7 @@
 package neatlogic.module.report.service;
 
 import com.alibaba.fastjson.JSON;
+import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import neatlogic.framework.common.dto.BasePageVo;
 import neatlogic.framework.common.util.PageUtil;
@@ -23,6 +24,15 @@ import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.poi.hssf.util.HSSFColor;
 import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.ss.usermodel.CellStyle;
+import org.apache.poi.ss.usermodel.BorderStyle;
+import org.apache.poi.ss.usermodel.FillPatternType;
+import org.apache.poi.ss.usermodel.Font;
+import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.util.CellRangeAddress;
+import org.apache.poi.xssf.streaming.SXSSFCell;
+import org.apache.poi.xssf.streaming.SXSSFRow;
+import org.apache.poi.xssf.streaming.SXSSFSheet;
 import org.apache.poi.xssf.streaming.SXSSFWorkbook;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -508,7 +518,7 @@ public class ReportServiceImpl implements ReportService {
                 List list = (List) object;
                 for (Object obj : list) {
                     if (obj instanceof Map) {
-                        Map<String, Object> hashMap = new HashMap<>();
+                        Map<String, Object> hashMap = new LinkedHashMap<>();
                         for (Map.Entry<?, ?> entity : ((Map<?, ?>) obj).entrySet()) {
                             hashMap.put((String) entity.getKey(), entity.getValue());
                         }
@@ -625,31 +635,32 @@ public class ReportServiceImpl implements ReportService {
     @Override
     public Workbook getReportWorkbook(String content) {
         Map<String, List<Map<String, Object>>> tableMap = getTableListByHtml(content);
-        if (MapUtils.isEmpty(tableMap)) {
-            throw new TableNotFoundInReportException();
-        }
-        ExcelBuilder builder = new ExcelBuilder(SXSSFWorkbook.class);
-        for (Map.Entry<String, List<Map<String, Object>>> entry : tableMap.entrySet()) {
-            String tableName = entry.getKey();
-            List<Map<String, Object>> tableBody = entry.getValue();
-            Map<String, Object> map = tableBody.get(0);
-            List<String> headerList = new ArrayList<>();
-            List<String> columnList = new ArrayList<>();
-            for (String key : map.keySet()) {
-                headerList.add(key);
-                columnList.add(key);
+        if (MapUtils.isNotEmpty(tableMap)) {
+            ExcelBuilder builder = new ExcelBuilder(SXSSFWorkbook.class);
+            for (Map.Entry<String, List<Map<String, Object>>> entry : tableMap.entrySet()) {
+                String tableName = entry.getKey().trim();
+                List<Map<String, Object>> tableBody = entry.getValue();
+                Map<String, Object> map = tableBody.get(0);
+                List<String> headerList = new ArrayList<>();
+                List<String> columnList = new ArrayList<>();
+                for (String key : map.keySet()) {
+                    headerList.add(key);
+                    columnList.add(key);
+                }
+                SheetBuilder sheetBuilder = builder.withBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT)
+                        .withHeadFontColor(HSSFColor.HSSFColorPredefined.WHITE)
+                        .withHeadBgColor(HSSFColor.HSSFColorPredefined.DARK_BLUE)
+                        .withColumnWidth(30)
+                        .addSheet(tableName)
+                        .withHeaderList(headerList)
+                        .withColumnList(columnList);
+                sheetBuilder.addDataList(tableBody);
             }
-            SheetBuilder sheetBuilder = builder.withBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT)
-                    .withHeadFontColor(HSSFColor.HSSFColorPredefined.WHITE)
-                    .withHeadBgColor(HSSFColor.HSSFColorPredefined.DARK_BLUE)
-                    .withColumnWidth(30)
-                    .addSheet(tableName)
-                    .withHeaderList(headerList)
-                    .withColumnList(columnList);
-            sheetBuilder.addDataList(tableBody);
+            return builder.build();
+        } else {
+            // 考虑报表内容配置有自定义表格
+            return getReportWorkbookByTemplateTable(content);
         }
-        Workbook workbook = builder.build();
-        return workbook;
     }
 
     /**
@@ -683,7 +694,7 @@ public class ReportServiceImpl implements ReportService {
      * @return
      */
     private Map<String, List<Map<String, Object>>> getTableListByHtml(String content) {
-        Map<String, List<Map<String, Object>>> tableMap = new LinkedHashMap();
+        Map<String, List<Map<String, Object>>> tableMap = new LinkedHashMap<>();
         if (StringUtils.isNotBlank(content)) {
             Document doc = Jsoup.parse(content);
             /** 抽取所有带有tableName属性的元素 */
@@ -718,6 +729,12 @@ public class ReportServiceImpl implements ReportService {
                                     }
                                     valueList.add(map);
                                 }
+                                if (tableMap.containsKey(tableName)) {
+                                    // 存在同名表格，增加空格区分存进Map
+                                    do {
+                                        tableName += " ";
+                                    } while (tableMap.containsKey(tableName));
+                                }
                                 tableMap.put(tableName, valueList);
                             }
                         }
@@ -726,5 +743,222 @@ public class ReportServiceImpl implements ReportService {
             }
         }
         return tableMap;
+    }
+
+    /**
+     * 解析内容配置里的不规范表格
+     * 循环填充方式生成excel，兼容存在rowspan、colspan的表格
+     *
+     * @param content
+     * @return
+     */
+    private Workbook getReportWorkbookByTemplateTable(String content) {
+        SXSSFWorkbook workbook = new SXSSFWorkbook();
+        if (StringUtils.isNotBlank(content)) {
+            Document doc = Jsoup.parse(content);
+            Elements tableElements = doc.getElementsByTag("table");
+            if (CollectionUtils.isEmpty(tableElements)) {
+                // 没有table标签
+                throw new TableNotFoundInReportException();
+            }
+
+            // 表头样式
+            CellStyle headStyle = getDefualtHeadCellStyle(workbook);
+            // 普通样式
+            CellStyle style = getDefualtCellStyle(workbook);
+            // 标志表头
+            Map<Integer, Set<Integer>> thMap = null;
+            // 表内所有单元格数据
+            Map<Integer, Map<Integer, String>> rowList = null;
+            // 单行单元格数据
+            Map<Integer, String> columnList = null;
+            // 合并单元格数组
+            JSONArray mergeJsonArray = null;
+            // 合并单元格对象
+            JSONObject mergeJsonObj = null;
+            // 行数据列表
+            Elements trList = null;
+            // 列数据列表
+            Elements tdList = null;
+
+            for (Element t : tableElements) {
+                thMap = new HashMap<>();
+                rowList = new HashMap<>();
+                mergeJsonArray = new JSONArray();
+
+                // 遍历表格内所有行
+                trList = t.select("tr");
+                for (int j = 0; j < trList.size(); j++) {
+                    Element r = trList.get(j);
+                    // 获取当前起始单元格行下标row, col
+                    int rowIndex = getBottomRowIndex(rowList, j);
+                    columnList = rowList.computeIfAbsent(rowIndex, k -> new HashMap<>());
+
+                    // 遍历此行内所有列
+                    tdList = r.select("th,td");
+                    for (int k = 0; k < tdList.size(); k++) {
+                        Element element = tdList.get(k);
+                        boolean isTh = "th".equals(element.tagName());
+                        // 获取当前起始单元格列下标
+                        int colIndex = getRightColumnIndex(columnList, 0);
+
+                        // 当前单元格内容
+                        String trimStr = null;
+                        // Excel 最大的 cell size 为 32767
+                        if (element.text().length() >= 32000) {
+                            trimStr = element.text().toString().substring(0, 32000);
+                        } else {
+                            Elements childrenEle = element.children();
+                            // <br>标签替换为\n换行符
+                            for (Element o : childrenEle) {
+                                if ("br".equals(o.tag().normalName())) {
+                                    if (trimStr == null) {
+                                        trimStr = element.html().trim();
+                                    }
+                                    trimStr = trimStr.replaceAll("\\s*" + o + "+\\s*", "\n");
+                                }
+                            }
+                        }
+                        if (trimStr == null) {
+                            trimStr = element.text().trim();
+                        }
+
+                        // 合并单元格 填充空值
+                        int colspan = 1;
+                        int rowspan = 1;
+                        if (StringUtils.isNotBlank(element.attr("colspan"))) {
+                            colspan = Integer.parseInt(element.attr("colspan").trim());
+                        }
+                        if (StringUtils.isNotBlank(element.attr("rowspan"))) {
+                            rowspan = Integer.parseInt(element.attr("rowspan").trim());
+                        }
+
+                        if (colspan > 1 || rowspan > 1) {
+                            for (int p = rowIndex; p < rowIndex + rowspan; p++) {
+                                Map<Integer, String> nowColumnList = rowList.computeIfAbsent(p, k1 -> new HashMap<>());
+                                for (int m = colIndex; m < colIndex + colspan; m++) {
+                                    if (p == rowIndex && m == colIndex) {
+                                        // 填充当前单元格内容
+                                        nowColumnList.put(m, trimStr);
+                                    } else {
+                                        // 填充空字符串占位
+                                        nowColumnList.put(m, "");
+                                    }
+                                    if (isTh) {
+                                        thMap.computeIfAbsent(p, k2 -> new HashSet<>()).add(m);
+                                    }
+                                }
+                            }
+                            mergeJsonObj = new JSONObject();
+                            mergeJsonObj.put("firstRow", rowIndex);
+                            mergeJsonObj.put("lastRow", rowIndex + rowspan - 1);
+                            mergeJsonObj.put("firstCol", colIndex);
+                            mergeJsonObj.put("lastCol", colIndex + colspan - 1);
+                            mergeJsonArray.add(mergeJsonObj);
+                        } else {
+                            columnList.put(colIndex, trimStr);
+                            if (isTh) {
+                                thMap.computeIfAbsent(rowIndex, k2 -> new HashSet<>()).add(colIndex);
+                            }
+                        }
+                    }
+                }
+
+                // 生成sheet及填充数据
+                SXSSFSheet sheet = workbook.createSheet();
+                for (int i = 0; i < rowList.size(); i++) {
+                    Map<Integer, String> tr = rowList.get(i);
+                    SXSSFRow row = sheet.createRow(i);
+                    for (int j = 0; j < tr.size(); j++) {
+                        if (i == 0) {
+                            sheet.setColumnWidth(j, 30 * 256);
+                        }
+                        String cellValue = tr.get(j);
+                        SXSSFCell cell = row.createCell((short) j);
+                        if (thMap.containsKey(i) && thMap.get(i).contains(j)) {
+                            cell.setCellStyle(headStyle);
+                        } else {
+                            cell.setCellStyle(style);
+                        }
+                        cell.setCellValue(cellValue);
+                    }
+                }
+                for (int p = 0; p < mergeJsonArray.size(); p++) {
+                    mergeJsonObj = mergeJsonArray.getJSONObject(p);
+                    int firstRow = mergeJsonObj.getInteger("firstRow");
+                    int lastRow = mergeJsonObj.getInteger("lastRow");
+                    int firstCol = mergeJsonObj.getInteger("firstCol");
+                    int lastCol = mergeJsonObj.getInteger("lastCol");
+                    sheet.addMergedRegion(new CellRangeAddress(firstRow, lastRow, firstCol, lastCol));
+                }
+
+            }
+        }
+        return workbook;
+    }
+
+    private CellStyle getDefualtCellStyle(Workbook wb) {
+        CellStyle style = wb.createCellStyle();
+        style.setBottomBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT.getIndex());
+        style.setTopBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT.getIndex());
+        style.setLeftBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT.getIndex());
+        style.setRightBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT.getIndex());
+
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.THIN);
+        return style;
+    }
+
+    private CellStyle getDefualtHeadCellStyle(Workbook wb) {
+        CellStyle style = wb.createCellStyle();
+        style.setFillPattern(FillPatternType.SOLID_FOREGROUND);
+        style.setFillBackgroundColor(HSSFColor.HSSFColorPredefined.DARK_BLUE.getIndex());
+        style.setFillForegroundColor(HSSFColor.HSSFColorPredefined.DARK_BLUE.getIndex());
+
+        Font font = wb.createFont();
+        font.setColor(HSSFColor.HSSFColorPredefined.WHITE.getIndex());
+        style.setFont(font);
+        style.setBottomBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT.getIndex());
+        style.setTopBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT.getIndex());
+        style.setLeftBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT.getIndex());
+        style.setRightBorderColor(HSSFColor.HSSFColorPredefined.GREY_40_PERCENT.getIndex());
+
+        style.setAlignment(HorizontalAlignment.CENTER);
+        style.setBorderBottom(BorderStyle.THIN);
+        style.setBorderLeft(BorderStyle.THIN);
+        style.setBorderRight(BorderStyle.THIN);
+        style.setBorderTop(BorderStyle.THIN);
+        return style;
+    }
+
+    private int getRightColumnIndex(Map<Integer, String> columnList, int k) {
+        int columnNum;
+        if (!columnList.containsKey(k)) {
+            columnNum = k;
+        } else {
+            columnNum = getRightColumnIndex(columnList, ++k);
+        }
+        return columnNum;
+    }
+
+    private int getBottomRowIndex(Map<Integer, Map<Integer, String>> rowList, int j) {
+        if (j == 0) {
+            return 0;
+        }
+        int length = rowList.get(j - 1).size();
+        int row = j;
+        int col = 0;
+        while (rowList.containsKey(row) && rowList.get(row).get(col) != null) {
+            if (col == length - 1) {
+                row++;
+                col = 0;
+            } else {
+                col++;
+            }
+        }
+        return row;
     }
 }
