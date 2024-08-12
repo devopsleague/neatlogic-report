@@ -2,16 +2,17 @@ package neatlogic.module.report.service;
 
 import neatlogic.module.report.dao.mapper.ReportInstanceMapper;
 import neatlogic.module.report.dto.ReportInstanceVo;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+
+import javax.annotation.Resource;
 
 @Service
 public class ReportInstanceServiceImpl implements ReportInstanceService {
 
-    @Autowired
+    @Resource
     private ReportInstanceMapper reportInstanceMapper;
 
-    @Autowired
+    @Resource
     private ReportService reportService;
 
     @Override
