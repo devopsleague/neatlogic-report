@@ -15,15 +15,16 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.*/
 
 package neatlogic.module.report.util;
 
-import neatlogic.framework.util.javascript.JavascriptUtil;
-import neatlogic.module.report.config.ReportConfig;
-import neatlogic.module.report.constvalue.ActionType;
-import neatlogic.module.report.widget.*;
+import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONObject;
 import freemarker.cache.StringTemplateLoader;
 import freemarker.template.Configuration;
 import freemarker.template.Template;
 import freemarker.template.TemplateException;
+import neatlogic.framework.util.javascript.JavascriptUtil;
+import neatlogic.module.report.config.ReportConfig;
+import neatlogic.module.report.constvalue.ActionType;
+import neatlogic.module.report.widget.*;
 import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.logging.Log;
@@ -164,7 +165,7 @@ public class ReportFreemarkerUtil {
                     temp.process(paramMap, out);
                 } catch (IOException | TemplateException e) {
                     logger.error("freeMarker Code：" + content);
-                    logger.error("JSON Code：" + JSONObject.toJSONString(paramMap));
+                    logger.error("JSON Code：" + JSON.toJSONString(paramMap));
                     logger.error(e.getMessage(), e);
                     throw e;
                 }
