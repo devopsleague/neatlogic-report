@@ -4,7 +4,6 @@ import com.alibaba.fastjson.JSON;
 import com.alibaba.fastjson.JSONArray;
 import com.alibaba.fastjson.JSONObject;
 import neatlogic.framework.common.dto.BasePageVo;
-import neatlogic.framework.common.util.PageUtil;
 import neatlogic.framework.dao.plugin.PageRowBounds;
 import neatlogic.framework.dto.RestVo;
 import neatlogic.framework.report.exception.ReportParamNameRepeatsException;
@@ -18,17 +17,11 @@ import neatlogic.module.report.config.ReportConfig;
 import neatlogic.module.report.dao.mapper.ReportInstanceMapper;
 import neatlogic.module.report.dao.mapper.ReportMapper;
 import neatlogic.module.report.dto.*;
-import neatlogic.module.report.util.ReportXmlUtil;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.poi.hssf.util.HSSFColor;
-import org.apache.poi.ss.usermodel.Workbook;
-import org.apache.poi.ss.usermodel.CellStyle;
-import org.apache.poi.ss.usermodel.BorderStyle;
-import org.apache.poi.ss.usermodel.FillPatternType;
-import org.apache.poi.ss.usermodel.Font;
-import org.apache.poi.ss.usermodel.HorizontalAlignment;
+import org.apache.poi.ss.usermodel.*;
 import org.apache.poi.ss.util.CellRangeAddress;
 import org.apache.poi.xssf.streaming.SXSSFCell;
 import org.apache.poi.xssf.streaming.SXSSFRow;
@@ -40,11 +33,12 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import javax.annotation.Resource;
 import javax.sql.DataSource;
-import java.sql.*;
+import java.sql.Connection;
+import java.sql.SQLException;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -52,13 +46,13 @@ import java.util.stream.Collectors;
 public class ReportServiceImpl implements ReportService {
     Logger logger = LoggerFactory.getLogger(ReportServiceImpl.class);
 
-    @Autowired
+    @Resource
     private ReportMapper reportMapper;
 
-    @Autowired
+    @Resource
     private ReportInstanceMapper reportInstanceMapper;
 
-    @Autowired
+    @Resource
     private DataSource dataSource;
 
     private Connection getConnection() throws SQLException {
@@ -85,170 +79,6 @@ public class ReportServiceImpl implements ReportService {
         }
     }
 
-    /**
-     * 返回所有数据源结果
-     */
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    public Map<String, Object> getQueryResult(Long reportId, JSONObject paramMap, Map<String, Long> timeMap,
-                                              boolean isFirst, Map<String, List<String>> showColumnsMap) throws Exception {
-        boolean needPage = true;
-        if (paramMap.containsKey("NOPAGE")) {
-            needPage = false;
-        }
-        ReportVo reportConfig = getReportDetailById(reportId);
-        Connection conn = null;
-        PreparedStatement stmt = null;
-        ResultSet resultSet = null;
-        Map<String, Object> returnResultMap = new HashMap<>();
-        List<SelectVo> selectList;
-        List<RestVo> restList;
-        Map<String, JSONObject> pageMap = new HashMap<>();
-        try {
-            Map<String, Object> analyseMap = ReportXmlUtil.analyseSql(reportConfig.getSql(), paramMap);
-            restList = (List<RestVo>) analyseMap.get("rest");
-            selectList = (List<SelectVo>) analyseMap.get("select");
-            for (RestVo rest : restList) {
-                if (isFirst && rest.isLazyLoad()) {
-                    continue;
-                }
-                returnResultMap.put(rest.getId(), getRemoteResult(rest));
-            }
-
-            for (SelectVo select : selectList) {
-                try {
-                    conn = getConnection();
-                    // 如果SQL设置了延迟加载，第一次访问时不主动获取数据
-                    if (isFirst && select.isLazyLoad()) {
-                        continue;
-                    }
-                    String sqlText = select.getSql();
-                    stmt = conn.prepareStatement(sqlText);
-                    stmt.setQueryTimeout(select.getQueryTimeout());
-                    StringBuilder sbParam = new StringBuilder();
-                    if (select.getParamList().size() > 0) {
-                        sbParam.append("(");
-                        for (int p = 0; p < select.getParamList().size(); p++) {
-                            if (select.getParamList().get(p) instanceof String) {
-                                stmt.setObject(p + 1, select.getParamList().get(p));
-                                sbParam.append(select.getParamList().get(p)).append(",");
-                            } else {
-                                // 数组参数有待处理
-                                stmt.setObject(p + 1, ((String[]) select.getParamList().get(p))[0]);
-                                sbParam.append(((String[]) select.getParamList().get(p))[0]).append(",");
-                            }
-                        }
-                        sbParam.deleteCharAt(sbParam.toString().length() - 1);
-                        sbParam.append(")");
-                    }
-                    /*
-                      新增日志记录
-                     */
-                    if (logger.isDebugEnabled() || logger.isInfoEnabled()) {
-                        logger.debug("REPORT RUN SQL::" + sqlText);
-                        logger.debug("REPORT RUN SQL PARAM::" + sbParam.toString());
-                    }
-
-                    resultSet = stmt.executeQuery();
-                    ResultSetMetaData metaData = resultSet.getMetaData();
-                    int count = metaData.getColumnCount();
-                    /*
-                    String[] columns = new String[count];
-                    Integer[] columnTypes = new Integer[count];
-
-                    for (int i = 1; i <= count; i++) {
-                        columnTypes[i - 1] = metaData.getColumnType(i);
-                        columns[i - 1] = metaData.getColumnLabel(i);
-                    }*/
-
-                    List<Map<String, Object>> resultList = new ArrayList<>();
-                    Map<String, Map<String, Object>> checkMap = new HashMap<>();
-                    Map<String, List> returnMap = new HashMap<>();
-                    int start = -1, end = -1;
-                    int index = 0;
-                    int currentPage = 1;
-                    int pageCount = 0;
-                    if (needPage && select.isNeedPage() && select.getPageSize() > 0) {
-
-                        if (paramMap.containsKey(select.getId() + ".currentpage")) {
-                            currentPage = Integer.parseInt(paramMap.get(select.getId() + ".currentpage").toString());
-                        }
-
-                        if (paramMap.containsKey(select.getId() + ".pagesize")) {
-                            select.setPageSize(Integer.parseInt(paramMap.get(select.getId() + ".pagesize").toString()));
-                        }
-
-                        start = Math.max((currentPage - 1) * select.getPageSize(), 0);
-                        end = start + select.getPageSize();
-                    }
-                    while (resultSet.next()) {
-                        ResultMapVo tmpResultMapVo = select.getResultMap();
-                        Map<String, Object> resultMap = new HashMap<>();
-                        for (int i = 1; i <= count; i++) {
-                            resultMap.put(metaData.getColumnLabel(i), resultSet.getObject(i));
-                        }
-                        tmpResultMapVo.setIndex(index);
-                        if (select.getResultType() == SelectVo.RSEULT_TYPE_LIST) {
-                            resultList = resultMapRecursion(tmpResultMapVo, resultList, resultMap, checkMap);
-                        } else {
-                            returnMap = wrapResultMapToMap(tmpResultMapVo, resultMap, returnMap);
-                        }
-                        index = tmpResultMapVo.getIndex();
-                    }
-                    if (needPage && select.isNeedPage() && select.getPageSize() > 0) {
-                        pageCount = PageUtil.getPageCount(index, select.getPageSize());
-                        if (pageCount < currentPage) {//异常处理
-                            start = 1;
-                            end = start + select.getPageSize();
-                            currentPage = 1;
-                        }
-                        JSONObject pageObj = new JSONObject();
-                        pageObj.put("rowNum", index);
-                        pageObj.put("currentPage", currentPage);
-                        pageObj.put("pageSize", select.getPageSize());
-                        pageObj.put("pageCount", pageCount);
-                        pageObj.put("needPage", true);
-                        pageMap.put(select.getId(), pageObj);
-                    }
-                    returnResultMap.put(ReportConfig.REPORT_PAGE_MAP_KEY, pageMap);
-                    /* 如果存在表格且存在表格显示列的配置，则筛选显示列并排序
-                      showColumnMap:key->表格ID;value->配置的表格显示列
-                     */
-                    if (MapUtils.isNotEmpty(showColumnsMap) && showColumnsMap.containsKey(select.getId())) {
-                        List<Map<String, Object>> sqList = selectTableColumns(showColumnsMap, select, resultList);
-                        resultList = sqList;
-                    }
-
-                    if (select.getResultType() == SelectVo.RSEULT_TYPE_LIST) {
-                        if (needPage && select.isNeedPage()) {
-                            resultList = resultList.subList(start, (pageCount == currentPage) ? resultList.size() : end);
-                        }
-                        returnResultMap.put(select.getId(), resultList);
-                    } else {
-                        returnResultMap.put(select.getId(), returnMap);
-                    }
-
-                } catch (SQLException e) {
-                    logger.error(e.getMessage(), e);
-                    throw e;
-                } finally {
-                    try {
-                        if (resultSet != null)
-                            resultSet.close();
-                        if (stmt != null)
-                            stmt.close();
-                        if (conn != null)
-                            conn.close();
-                    } catch (SQLException e) {
-                        logger.error(e.getMessage(), e);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            logger.error(e.getMessage(), e);
-            throw e;
-        }
-        return returnResultMap;
-    }
 
     /**
      * 查询报表实例的表格显示列配置

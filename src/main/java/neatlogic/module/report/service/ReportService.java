@@ -1,9 +1,9 @@
 package neatlogic.module.report.service;
 
+import com.alibaba.fastjson.JSONObject;
 import neatlogic.framework.sqlrunner.SqlInfo;
 import neatlogic.module.report.dto.ReportParamVo;
 import neatlogic.module.report.dto.ReportVo;
-import com.alibaba.fastjson.JSONObject;
 import org.apache.poi.ss.usermodel.Workbook;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -11,7 +11,6 @@ import java.util.List;
 import java.util.Map;
 
 public interface ReportService {
-    Map<String, Object> getQueryResult(Long reportId, JSONObject paramMap, Map<String, Long> timeMap, boolean isFirst, Map<String, List<String>> showColumnsMap) throws Exception;
 
     ReportVo getReportDetailById(Long reportId);
 
